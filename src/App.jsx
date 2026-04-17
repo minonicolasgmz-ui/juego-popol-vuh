@@ -679,7 +679,7 @@ onAction = { executeAttack }
         </div>
         </div>
 
-        < div className = "flex gap-2 overflow-x-auto pb-2 pt-2 px-2 snap-x hide-scrollbar" >
+        < div className = "flex gap-2 overflow-x-auto pb-4 pt-14 px-2 snap-x hide-scrollbar" >
         {
             pTurn.hand.map((card, idx) => (
                 <div key= { card.uid } className = "snap-center relative shrink-0" >
@@ -692,10 +692,10 @@ isSelected = { selectedHandCard === idx}
     selectedHandCard === idx && !pTurn.hasPlayedCard && (
         <button 
                     onClick={ playCardToBoard }
-    className = {`absolute -top-8 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full font-bold text-xs shadow-xl whitespace-nowrap z-50 ${pTurn.mana >= card.cost ? 'bg-green-600 text-white' : 'bg-red-800 text-slate-300'}`
+    className = {`absolute -top-12 left-1/2 -translate-x-1/2 px-6 py-2.5 rounded-full font-black text-sm shadow-[0_0_20px_rgba(0,0,0,0.6)] whitespace-nowrap z-50 tracking-wider transition-all border-2 ${pTurn.mana >= card.cost ? 'bg-green-500 border-green-300 text-white animate-bounce' : 'bg-red-800 border-red-500 text-slate-300 opacity-90'}`
 }
                   >
-    { pTurn.mana >= card.cost ? `Bajar (-${card.cost}🌽)` : `Falta 🌽` }
+    { pTurn.mana >= card.cost ? `BAJAR (-${card.cost}🌽)` : `FALTA 🌽` }
     </button>
                 )}
 </div>
