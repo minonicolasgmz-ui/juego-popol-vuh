@@ -84,7 +84,7 @@ const playSound = (type) => {
 
 // --- DATA: CARTAS ---
 const BASE_CARDS = [
-    { id: 'c1', name: 'Hunahpú e Ixbalanqué', faction: 'Héroes', color: 'bg-blue-900 border-blue-400', cost: 3, fd: 5, pc: 7, as: 10, img: '🏹', imageUrl: '/hunahpu.jpg', lore: { general: "Los Gemelos Divinos, destinados a restaurar el orden.", as: "Vencieron a Xibalbá usando intelecto, no fuerza." } },
+    { id: 'c1', name: 'Hunahpú e Ixbalanqué', faction: 'Héroes', color: 'bg-blue-900 border-blue-400', cost: 3, fd: 5, pc: 7, as: 10, img: '🏹', lore: { general: "Los Gemelos Divinos, destinados a restaurar el orden.", as: "Vencieron a Xibalbá usando intelecto, no fuerza." } },
     { id: 'c2', name: 'Vucub-Caquix', faction: 'Soberbios', color: 'bg-red-950 border-red-500', cost: 4, fd: 10, pc: 2, as: 2, img: '🦚', lore: { general: "Arrogante que se proclamó el Sol. Su vanidad fue su perdición.", fd: "Fuerza abrumadora, pero astucia nula." } },
     { id: 'c3', name: 'Ixmucané', faction: 'Progenitores', color: 'bg-emerald-950 border-emerald-400', cost: 2, fd: 1, pc: 10, as: 8, img: '🫔', lore: { general: "Abuela del Alba. Molió el maíz para hacer a los humanos.", pc: "Su poder creador moldeó la carne humana." } },
     { id: 'c4', name: 'Hun-Camé', faction: 'Xibalbá', color: 'bg-purple-950 border-purple-500', cost: 4, fd: 8, pc: 5, as: 9, img: '💀', lore: { general: "Juez Supremo del inframundo. Adora humillar a los vivos.", as: "Creador de trampas y cuartos de tortura." } },
