@@ -197,7 +197,7 @@ export default function App() {
 
     <main id="arena" className="arena">
       <BattleEffects effect={latestEffect} reducedMotion={reducedMotion} />
-      <div className="arena-background" /><div className="arena-vignette" /><div className="arena-grain" />
+      <div className="arena-background" /><div className="arena-vignette" />
       <div className="embers" aria-hidden="true">{Array.from({ length: 14 }, (_, index) => <i key={index} style={{ '--i': index, left: `${(index * 73 + 13) % 100}%`, animationDelay: `${index * -.9}s` }} />)}</div>
       <div className="arena-topline"><span><span className="live-dot" /> {game.mode === 'ai' ? 'DUELO CONTRA XIBALBÁ' : 'DUELO LOCAL · 2 JUGADORES'}</span><span>EL TEMPLO DEL PRIMER AMANECER <Sigil size={15} /></span></div>
       <div className="opponent-zone"><div className="opponent-label"><div><span>{game.mode === 'ai' ? 'SEÑOR DE XIBALBÁ' : `JUGADOR ${opponentNumber}`}</span><small>{isAiTurn ? 'Está preparando su siguiente movimiento…' : 'El inframundo aguarda'}</small></div><Hero player={opponent} number={opponentNumber} enemy targetable={canAct && targets.hero} onClick={() => attack(null, true)} effect={latestEffect} /><div className="opponent-energy"><Wheat size={15} /><strong>{opponent.mana}</strong><span>/{opponent.maxMana}</span></div></div><div className="opponent-hand" aria-label={`Mano rival, ${opponent.hand.length} cartas`}>{opponent.hand.map((card, index) => <div key={card.uid} style={{ '--back-angle': `${(index - (opponent.hand.length - 1) / 2) * 6}deg` }}><CardBack small /></div>)}</div></div>

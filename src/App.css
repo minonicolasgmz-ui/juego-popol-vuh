@@ -68,10 +68,9 @@ button svg { flex-shrink: 0; }
   padding: 0 38px;
   isolation: isolate;
 }
-.arena-background, .arena-vignette, .arena-grain { position: absolute; inset: 0; z-index: -2; pointer-events: none; }
+.arena-background, .arena-vignette { position: absolute; inset: 0; z-index: -2; pointer-events: none; }
 .arena-background { background: #183326 url('/art/xibalba-arena.webp') center 53% / cover no-repeat; opacity: .65; filter: saturate(.72); }
 .arena-vignette { z-index: -1; background: radial-gradient(ellipse at 51% 48%,#0b242100 18%,#0718144d 61%,#041210cc 100%),linear-gradient(180deg,#05141026,#0314102b 57%,#061611df); }
-.arena-grain { z-index: -1; opacity: .19; background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.7' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' opacity='.2' filter='url(%23noise)'/%3E%3C/svg%3E"); }
 .arena-topline { height: 34px; flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; color: #aeb9a1; font-size: 7px; letter-spacing: 1.75px; font-weight: 500; }
 .arena-topline > span { display: flex; align-items: center; gap: 8px; }
 .arena-topline > span:last-child { color: #82967e; }
@@ -208,7 +207,8 @@ button svg { flex-shrink: 0; }
 .bottom-bar i { width: 3px; height: 3px; background: #9b995f; transform: rotate(45deg); margin: 0 4px; }
 .bottom-bar button { display: flex; align-items: center; gap: 7px; padding: 0; background: transparent; color: #a8b194; font-size: 6px; letter-spacing: 1.2px; }
 .bottom-bar button:hover { color: #e5cb95; }
-.selection-actions { position: absolute; z-index: 40; bottom: 267px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 17px; padding: 12px 12px 12px 20px; border: 1px solid #c2ac705e; border-radius: 5px; background: linear-gradient(145deg,#183d31f5,#0a231df8); box-shadow: 0 9px 35px #000a,0 0 28px #aac47a0c; backdrop-filter: blur(16px); white-space: nowrap; animation: selection-reveal .18s ease-out; max-width: calc(100% - 40px); }
+/* Opaque selection controls avoid resampling the filtered arena on mobile GPUs. */
+.selection-actions { position: absolute; z-index: 40; bottom: 267px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 17px; padding: 12px 12px 12px 20px; border: 1px solid #c2ac705e; border-radius: 5px; background: linear-gradient(145deg,#183d31,#0a231d); box-shadow: 0 9px 35px #000a,0 0 28px #aac47a0c; white-space: nowrap; animation: selection-reveal .18s ease-out; max-width: calc(100% - 40px); }
 .selection-actions > span { max-width: 225px; }
 .selection-actions > span > strong { display: block; font-family: 'Cinzel',Georgia,serif; font-size: 10px; color: #ead7a6; font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
 .selection-actions > span > small { display: block; color: #9bb398; font-size: 7px; margin-top: 4px; white-space: normal; }
