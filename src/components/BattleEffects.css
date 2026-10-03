@@ -1,0 +1,79 @@
+.battle-effects {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  overflow: hidden;
+  pointer-events: none;
+  --vfx-color: #f8b950;
+  --vfx-hot: #fff4bd;
+}
+.battle-effects > span { position: absolute; display: block; pointer-events: none; }
+.vfx-beam {
+  height: 3px;
+  margin-top: -1.5px;
+  transform-origin: 0 50%;
+  background: linear-gradient(90deg, transparent, var(--vfx-color) 20%, var(--vfx-hot));
+  box-shadow: 0 0 8px var(--vfx-color), 0 0 20px var(--vfx-color);
+  border-radius: 100%;
+}
+.vfx-projectile {
+  width: 19px;
+  height: 19px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff 0%, var(--vfx-hot) 22%, var(--vfx-color) 48%, transparent 74%);
+  box-shadow: 0 0 12px var(--vfx-color), 0 0 30px var(--vfx-color);
+}
+.vfx-projectile-small { width: 11px; height: 11px; }
+.vfx-impact {
+  width: 94px;
+  height: 94px;
+  border: 2px solid var(--vfx-hot);
+  border-radius: 50%;
+  box-shadow: inset 0 0 18px var(--vfx-color), 0 0 14px var(--vfx-color);
+}
+.vfx-impact-small { width: 65px; height: 65px; border-width: 1px; }
+.vfx-impact-core {
+  width: 78px;
+  height: 78px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--vfx-hot), var(--vfx-color) 20%, transparent 67%);
+  mix-blend-mode: screen;
+}
+.vfx-particle {
+  width: 5px;
+  height: 5px;
+  background: var(--vfx-hot);
+  box-shadow: 0 0 8px var(--vfx-color);
+  border-radius: 50%;
+}
+.vfx-damage {
+  color: #fff7da;
+  font: 800 42px/1 'Cinzel', Georgia, serif;
+  text-shadow: 0 2px 2px #14080a, 0 0 3px #14080a, 0 0 15px var(--vfx-color);
+  letter-spacing: -2px;
+  white-space: nowrap;
+  z-index: 3;
+}
+.vfx-summon-aura {
+  border: 1px solid var(--vfx-hot);
+  border-radius: 22px;
+  box-shadow: inset 0 0 35px var(--vfx-color), 0 0 30px var(--vfx-color);
+  background: radial-gradient(ellipse at bottom, #63efbb38, transparent 65%);
+}
+.vfx-fallen-card {
+  border: 1px solid #ead094;
+  border-radius: 12px;
+  background-size: 400% 200%;
+  box-shadow: 0 0 15px var(--vfx-color);
+}
+.vfx-shard {
+  width: 14px;
+  height: 23px;
+  background: linear-gradient(140deg, var(--vfx-hot), var(--vfx-color), #07120c);
+  clip-path: polygon(20% 0, 100% 25%, 68% 100%, 0 73%);
+  filter: drop-shadow(0 0 4px var(--vfx-color));
+}
+@media (max-width: 700px) { .vfx-damage { font-size: 31px; } }
+@media (prefers-reduced-motion: reduce) {
+  .battle-effects > span:not(.vfx-damage) { display: none; }
+}

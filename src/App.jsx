@@ -1,711 +1,231 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Zap, Brain, Swords, RefreshCw, Info, Play, UserX, X, RotateCcw } from 'lucide-react';
+import { useEffect, useReducer, useRef, useState } from 'react'
+import { ArrowRight, BookOpen, Brain, Check, ChevronDown, ChevronRight, CircleHelp, Crown, Flame, Leaf, Maximize2, RotateCcw, ScrollText, Settings2, Shield, Sparkles, Swords, Volume2, VolumeX, Wheat, X, Zap } from 'lucide-react'
+import GameCard, { CardBack } from './components/GameCard'
+import BattleEffects from './components/BattleEffects'
+import { CARDS, STATS } from './game/cards'
+import { chooseAiAction, combatPreview, createGame, gameReducer, getLegalTargets } from './game/engine'
+import './App.css'
 
-// --- ESTILOS CSS INYECTADOS PARA EFECTOS ---
-const customStyles = `
-  @keyframes shake {
-    0% { transform: translate(1px, 1px) rotate(0deg); }
-    10% { transform: translate(-1px, -2px) rotate(-1deg); }
-    20% { transform: translate(-3px, 0px) rotate(1deg); }
-    30% { transform: translate(3px, 2px) rotate(0deg); }
-    40% { transform: translate(1px, -1px) rotate(1deg); }
-    50% { transform: translate(-1px, 2px) rotate(-1deg); }
-    60% { transform: translate(-3px, 1px) rotate(0deg); }
-    70% { transform: translate(3px, 1px) rotate(-1deg); }
-    80% { transform: translate(-1px, -1px) rotate(1deg); }
-    90% { transform: translate(1px, 2px) rotate(0deg); }
-    100% { transform: translate(1px, -2px) rotate(-1deg); }
-  }
-  .shake-effect { animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both; }
-  
-  @keyframes floatUp {
-    0% { opacity: 1; transform: translateY(0) scale(1); }
-    100% { opacity: 0; transform: translateY(-50px) scale(1.5); }
-  }
-  .damage-float {
-    position: absolute; color: #ff3333; font-weight: 900; font-size: 2rem;
-    text-shadow: 0 0 10px black; pointer-events: none; z-index: 100;
-    animation: floatUp 1s ease-out forwards;
-  }
-  .hide-scrollbar::-webkit-scrollbar { display: none; }
-  .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-`;
-
-// --- MOTOR DE SONIDO RETRO (AudioContext) ---
-const playSound = (type) => {
-    try {
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        if (!AudioContext) return;
-        const ctx = new AudioContext();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-
-        if (type === 'attack') {
-            osc.type = 'sawtooth';
-            osc.frequency.setValueAtTime(300, ctx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(50, ctx.currentTime + 0.2);
-            gain.gain.setValueAtTime(0.3, ctx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
-            osc.start(); osc.stop(ctx.currentTime + 0.2);
-        } else if (type === 'error') {
-            osc.type = 'square';
-            osc.frequency.setValueAtTime(150, ctx.currentTime);
-            osc.frequency.setValueAtTime(100, ctx.currentTime + 0.1);
-            gain.gain.setValueAtTime(0.2, ctx.currentTime);
-            gain.gain.linearRampToValueAtTime(0.01, ctx.currentTime + 0.2);
-            osc.start(); osc.stop(ctx.currentTime + 0.2);
-        } else if (type === 'play') {
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(400, ctx.currentTime);
-            osc.frequency.linearRampToValueAtTime(600, ctx.currentTime + 0.1);
-            gain.gain.setValueAtTime(0.2, ctx.currentTime);
-            gain.gain.linearRampToValueAtTime(0.01, ctx.currentTime + 0.1);
-            osc.start(); osc.stop(ctx.currentTime + 0.1);
-        } else if (type === 'hit') {
-            osc.type = 'square';
-            osc.frequency.setValueAtTime(100, ctx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(10, ctx.currentTime + 0.4);
-            gain.gain.setValueAtTime(0.5, ctx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
-            osc.start(); osc.stop(ctx.currentTime + 0.4);
-        } else if (type === 'coin') {
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(800, ctx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.1);
-            gain.gain.setValueAtTime(0.1, ctx.currentTime);
-            gain.gain.linearRampToValueAtTime(0.01, ctx.currentTime + 0.1);
-            osc.start(); osc.stop(ctx.currentTime + 0.1);
-        }
-    } catch (e) { console.log("Audio not supported", e); }
-};
-
-// --- DATA: CARTAS ---
-const BASE_CARDS = [
-    { id: 'c1', name: 'Hunahpú e Ixbalanqué', faction: 'Héroes', color: 'bg-blue-900 border-blue-400', cost: 3, fd: 5, pc: 7, as: 10, img: '🏹', lore: { general: "Los Gemelos Divinos, destinados a restaurar el orden.", as: "Vencieron a Xibalbá usando intelecto, no fuerza." } },
-    { id: 'c2', name: 'Vucub-Caquix', faction: 'Soberbios', color: 'bg-red-950 border-red-500', cost: 4, fd: 10, pc: 2, as: 2, img: '🦚', lore: { general: "Arrogante que se proclamó el Sol. Su vanidad fue su perdición.", fd: "Fuerza abrumadora, pero astucia nula." } },
-    { id: 'c3', name: 'Ixmucané', faction: 'Progenitores', color: 'bg-emerald-950 border-emerald-400', cost: 2, fd: 1, pc: 10, as: 8, img: '🫔', lore: { general: "Abuela del Alba. Molió el maíz para hacer a los humanos.", pc: "Su poder creador moldeó la carne humana." } },
-    { id: 'c4', name: 'Hun-Camé', faction: 'Xibalbá', color: 'bg-purple-950 border-purple-500', cost: 4, fd: 8, pc: 5, as: 9, img: '💀', lore: { general: "Juez Supremo del inframundo. Adora humillar a los vivos.", as: "Creador de trampas y cuartos de tortura." } },
-    { id: 'c5', name: 'Huracán', faction: 'Progenitores', color: 'bg-teal-950 border-teal-300', cost: 5, fd: 10, pc: 10, as: 5, img: '🌪️', lore: { general: "El Corazón del Cielo. Una de las fuerzas primordiales.", fd: "Capaz de desatar un diluvio apocalíptico." } },
-    { id: 'c6', name: 'Zipacná', faction: 'Soberbios', color: 'bg-orange-950 border-orange-600', cost: 3, fd: 9, pc: 4, as: 2, img: '🏔️', lore: { general: "Hijo de Vucub-Caquix. Cargaba montañas en su espalda.", fd: "Fuerza titánica; murió aplastado por su propio peso." } },
-    { id: 'c7', name: 'Balam-Quitzé', faction: 'Hombres', color: 'bg-yellow-900 border-yellow-500', cost: 2, fd: 5, pc: 5, as: 7, img: '🐆', lore: { general: "Uno de los primeros hombres de maíz.", as: "Lideró a su tribu en la oscuridad esperando el sol." } },
-    { id: 'c8', name: 'Señores Búhos', faction: 'Xibalbá', color: 'bg-indigo-950 border-indigo-400', cost: 1, fd: 4, pc: 4, as: 8, img: '🦉', lore: { general: "Mensajeros del inframundo.", as: "Engañan a sus presas para llevarlas a la muerte." } }
-];
-
-const ITEM_TYPES = [
-    { type: 'corn', emoji: '🌽', points: 1 },
-    { type: 'wood', emoji: '🪵', points: -2 },
-    { type: 'mud', emoji: '🟤', points: -1 }
-];
-
-// --- COMPONENTE: MINIJUEGO DE COSECHA ---
-function CosechaPaxil({ player, onFinish }) {
-    const [isPlaying, setIsPlaying] = useState(false);
-    const [score, setScore] = useState(0);
-    const [timeLeft, setTimeLeft] = useState(15);
-    const [items, setItems] = useState([]);
-    const [basketPos, setBasketPos] = useState(50);
-
-    const gameAreaRef = useRef(null);
-    const requestRef = useRef();
-
-    const BASKET_WIDTH = 25;
-    const ITEM_SPEED = 1.5;
-    const SPAWN_RATE = 400;
-
-    const startGame = () => {
-        playSound('play');
-        setIsPlaying(true);
-        setScore(0);
-        setTimeLeft(15);
-        setItems([]);
-    };
-
-    const handleTouchMove = (e) => {
-        if (!gameAreaRef.current) return;
-        const touch = e.touches ? e.touches[0] : e;
-        const rect = gameAreaRef.current.getBoundingClientRect();
-        let newPos = ((touch.clientX - rect.left) / rect.width) * 100;
-        newPos = Math.max(BASKET_WIDTH / 2, Math.min(100 - BASKET_WIDTH / 2, newPos));
-        setBasketPos(newPos);
-    };
-
-    useEffect(() => {
-        if (!isPlaying) return;
-        const timer = setInterval(() => {
-            setTimeLeft(prev => {
-                if (prev <= 1) {
-                    setIsPlaying(false);
-                    clearInterval(timer);
-                    return 0;
-                }
-                return prev - 1;
-            });
-        }, 1000);
-
-        const spawner = setInterval(() => {
-            const randomItem = ITEM_TYPES[Math.floor(Math.random() * ITEM_TYPES.length)];
-            setItems(prev => [...prev, {
-                id: Math.random().toString(),
-                x: Math.random() * 80 + 10,
-                y: -10,
-                ...randomItem
-            }]);
-        }, SPAWN_RATE);
-
-        return () => { clearInterval(timer); clearInterval(spawner); };
-    }, [isPlaying]);
-
-    useEffect(() => {
-        if (!isPlaying) return;
-        const updatePhysics = () => {
-            setItems(prevItems => {
-                let newItems = [];
-                prevItems.forEach(item => {
-                    const newY = item.y + ITEM_SPEED;
-                    // Colisión con la canasta
-                    if (newY > 80 && newY < 95) {
-                        const distanceX = Math.abs(item.x - basketPos);
-                        if (distanceX < BASKET_WIDTH / 2 + 8) {
-                            setScore(s => Math.max(0, s + item.points));
-                            if (item.points > 0) playSound('coin');
-                            else playSound('error');
-
-                            if (window.navigator.vibrate) window.navigator.vibrate(item.points > 0 ? 30 : 100);
-                            return;
-                        }
-                    }
-                    if (newY < 105) newItems.push({ ...item, y: newY });
-                });
-                return newItems;
-            });
-            requestRef.current = requestAnimationFrame(updatePhysics);
-        };
-        requestRef.current = requestAnimationFrame(updatePhysics);
-        return () => cancelAnimationFrame(requestRef.current);
-    }, [isPlaying, basketPos]);
-
-    if (!isPlaying && timeLeft === 0) {
-        // La puntuación ES el maná. Máximo 10, Mínimo 1.
-        const earnedMana = Math.max(1, Math.min(10, score));
-        return (
-            <div className= "flex flex-col items-center justify-center min-h-[100dvh] overscroll-none touch-none bg-slate-950 text-white p-6 text-center select-none w-full h-[100dvh] absolute inset-0 z-50" >
-            <h2 className="text-4xl font-bold text-yellow-500 mb-2" >¡Cosecha Terminada! </h2>
-                < div className = "text-6xl mb-4" >🌽</div>
-                    < p className = "text-slate-300 mb-6 text-lg" > Atrapaste { score } maíces sagrados.</p>
-                        < div className = "bg-slate-900 p-6 rounded-xl border-2 border-slate-700 shadow-xl w-full max-w-sm" >
-                            <div className="text-xl text-yellow-400 font-bold mb-6" >
-            ¡Jugador { player } comenzará con < span className = "text-3xl text-white" > { earnedMana } </span> de Energía!
-            </div>
-            < button onClick = {() => { playSound('play'); onFinish(earnedMana); }
-    } className = "w-full py-4 bg-green-600 hover:bg-green-500 rounded-lg font-bold text-xl shadow-lg active:scale-95" >
-        { player === 1 ? 'Pasar al Jugador 2' : 'Ir a la Batalla'
-}
-</button>
-    </div>
-    </div>
-    );
-  }
-
-return (
-    <div className= "flex flex-col min-h-[100dvh] w-full bg-slate-950 relative select-none touch-none overscroll-none absolute inset-0 z-50 overflow-hidden" >
-    <div className="bg-slate-900 p-4 flex justify-between items-center z-10 border-b border-slate-800" >
-        <div className="flex items-center gap-2 text-yellow-500 font-bold text-2xl" >🌽 { score } </div>
-            < div className = "text-slate-400 font-bold" > Jugador { player } </div>
-                < div className = "text-slate-300 font-mono text-xl font-bold bg-slate-800 px-3 py-1 rounded-lg" >
-          00: { timeLeft.toString().padStart(2, '0') }
-</div>
-    </div>
-
-{
-    !isPlaying && timeLeft === 15 && (
-        <div className="absolute inset-0 bg-black/80 z-20 flex flex-col items-center justify-center p-6 text-center backdrop-blur-sm" >
-            <h2 className="text-4xl font-black text-yellow-500 mb-2" > Jugador { player } </h2>
-                < h3 className = "text-2xl text-white mb-4" > La Cosecha de Paxil </h3>
-                    < p className = "text-slate-300 mb-8 max-w-xs" >
-                        Atrapa el maíz(🌽) moviendo la canasta. < br /> <br/>
-                            < strong className = "text-yellow-400" >¡Tu puntuación será tu Energía inicial para la batalla de cartas! < /strong> <br/ > <br/>
-            Esquiva la madera(🪵) y el barro(🟤).
-          </p>
-        < button onClick = { startGame } className = "px-10 py-5 bg-yellow-600 hover:bg-yellow-500 rounded-full font-bold text-2xl shadow-[0_0_20px_rgba(202,138,4,0.5)] flex items-center gap-3 active:scale-95 text-white" >
-            <Play fill="currentColor" size = { 28} /> Comenzar
-                </button>
-                </div>
-      )
+const STAT_ICONS = { fd: Swords, pc: Zap, as: Brain }
+let audioContext
+function sound(type, enabled) {
+  if (!enabled) return
+  try {
+    audioContext ||= new (window.AudioContext || window.webkitAudioContext)()
+    if (audioContext.state === 'suspended') audioContext.resume()
+    const now = audioContext.currentTime
+    const notes = type === 'attack' ? [150, 65, 220] : type === 'turn' ? [330, 440, 660] : type === 'error' ? [110] : [440, 660, 880]
+    notes.forEach((note, index) => {
+      const osc = audioContext.createOscillator(), gain = audioContext.createGain()
+      osc.type = type === 'attack' ? 'triangle' : 'sine'
+      osc.frequency.setValueAtTime(note, now + index * .06)
+      osc.frequency.exponentialRampToValueAtTime(note * .65, now + index * .06 + .35)
+      gain.gain.setValueAtTime(0, now)
+      gain.gain.linearRampToValueAtTime(.075, now + index * .06 + .01)
+      gain.gain.exponentialRampToValueAtTime(.001, now + index * .06 + .45)
+      osc.connect(gain); gain.connect(audioContext.destination)
+      osc.start(now + index * .06); osc.stop(now + index * .06 + .5)
+      osc.onended = () => { osc.disconnect(); gain.disconnect() }
+    })
+  } catch { /* Sound is optional on browsers without Web Audio. */ }
 }
 
-<div 
-        ref={ gameAreaRef }
-className = "flex-1 relative bg-[url('https://www.transparenttextures.com/patterns/stardust.png')] bg-slate-800"
-onMouseMove = { handleTouchMove }
-onTouchMove = { handleTouchMove }
-    >
-{
-    items.map(item => (
-        <div key= { item.id } className = "absolute text-5xl transform -translate-x-1/2 -translate-y-1/2 drop-shadow-lg" style = {{ left: `${item.x}%`, top: `${item.y}%` }} >
-    { item.emoji }
-    </div>
-        ))}
-<div 
-          className="absolute bottom-8 h-20 bg-gradient-to-b from-yellow-700 to-yellow-900 border-t-4 border-yellow-500 rounded-b-2xl rounded-t flex items-center justify-center shadow-2xl"
-style = {{ left: `${basketPos}%`, width: `${BASKET_WIDTH}%`, transform: 'translateX(-50%)' }}
-        >
-    <div className="text-4xl mt-[-15px]" >🫔</div>
-        </div>
-        </div>
-        </div>
-  );
+function Sigil({ className = '', size = 36 }) {
+  return <svg className={className} width={size} height={size} viewBox="0 0 64 64" fill="none" aria-hidden="true"><path d="M32 3 60 32 32 61 4 32Z" stroke="currentColor" strokeWidth="1.5" /><path d="M32 10 53 32 32 54 11 32Z" stroke="currentColor" strokeWidth="1" /><path d="m32 16 8 10-8 8-8-8 8-10Zm-10 17 10 14 10-14M16 30l7 7M48 30l-7 7M32 4v8M32 52v8M4 32h8M52 32h8" stroke="currentColor" strokeWidth="2" /><circle cx="32" cy="26" r="3" fill="currentColor" /></svg>
 }
 
-// --- COMPONENTE CARTA ---
-const Card = ({ card, onClick, isSelected, showActions, onAction, onInfo, hidden = false }) => {
-    if (hidden) {
-        return (
-            <div className= "w-[72px] h-[100px] md:w-32 md:h-48 rounded-xl bg-slate-800 border-2 border-slate-600 shadow-lg flex items-center justify-center bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-700 to-slate-900 shrink-0" >
-            <div className="text-2xl opacity-20" >🎴</div>
-                </div>
-    );
+function Modal({ title, eyebrow, onClose, children, wide = false, className = '' }) {
+  const panel = useRef(null)
+  const closeRef = useRef(onClose)
+  useEffect(() => { closeRef.current = onClose }, [onClose])
+  useEffect(() => {
+    const before = document.activeElement
+    panel.current?.focus()
+    function onKey(event) {
+      const dialogs = document.querySelectorAll('[role="dialog"]')
+      if (dialogs[dialogs.length - 1] !== panel.current) return
+      if (event.key === 'Escape') closeRef.current()
+      if (event.key !== 'Tab') return
+      const buttons = Array.from(panel.current?.querySelectorAll('button:not([disabled]), input, select, [tabindex="0"]') || []).filter(element => element.getClientRects().length > 0)
+      if (!buttons?.length) return
+      const first = buttons[0], last = buttons[buttons.length - 1]
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === panel.current)) { event.preventDefault(); last.focus() }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('keydown', onKey); before?.focus() }
+  }, [])
+  return <div className="modal-backdrop" onClick={onClose}><section ref={panel} tabIndex={-1} role="dialog" aria-modal="true" aria-label={title} className={`modal-panel ${wide ? 'modal-wide' : ''} ${className}`} onClick={event => event.stopPropagation()}><button className="modal-close icon-button" aria-label="Cerrar" onClick={onClose}><X size={20} /></button><div className="modal-heading"><Sigil size={28} /><span>{eyebrow || 'EL LIBRO DEL CONSEJO'}</span><h2>{title}</h2></div>{children}</section></div>
+}
+
+function Hero({ player, number, enemy, targetable, onClick, effect }) {
+  return <button data-hero-id={`hero-${number}`} className={`hero-portrait ${enemy ? 'enemy-hero' : 'friendly-hero'} ${targetable ? 'hero-targetable' : ''} ${effect?.target === `hero-${number}` && effect.type === 'attack' ? 'hero-hit' : ''}`} onClick={onClick} disabled={!targetable} aria-label={`${enemy ? 'Rival' : 'Tu héroe'}, ${player.hp} de 30 puntos de vida${targetable ? ', atacar' : ''}`}>
+    <span className="hero-art" style={{ backgroundPosition: enemy ? '100% 0%' : '66.6667% 100%' }} /><span className="hero-crown"><Crown size={13} /></span><span className="hero-health">{player.hp}</span>
+
+  </button>
+}
+
+function Harvest({ onFinish, player }) {
+  const [running, setRunning] = useState(false)
+  const [view, setView] = useState({ items: [], score: 0, time: 12, position: 50 })
+  const area = useRef(null), basket = useRef(50)
+  useEffect(() => {
+    if (!running) return
+    let frame, items = [], score = 0, lastSpawn = 0, previous = 0
+    const started = performance.now()
+    function tick(now) {
+      const elapsed = now - started, delta = Math.min(40, now - (previous || now))
+      previous = now
+      if (elapsed - lastSpawn > 390) { lastSpawn = elapsed; items.push({ id: now, x: 8 + Math.random() * 84, y: -8, corn: Math.random() > .25 }) }
+      items = items.filter(item => {
+        item.y += delta * .025
+        if (item.y > 87 && item.y < 99 && Math.abs(item.x - basket.current) < 14) { score = Math.max(0, score + (item.corn ? 1 : -2)); return false }
+        return item.y < 105
+      })
+      setView({ items: [...items], score, time: Math.max(0, Math.ceil((12000 - elapsed) / 1000)), position: basket.current })
+      if (elapsed < 12000) frame = requestAnimationFrame(tick)
+    }
+    frame = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(frame)
+  }, [running])
+  function move(clientX) {
+    const rect = area.current?.getBoundingClientRect()
+    if (rect) basket.current = Math.max(12, Math.min(88, (clientX - rect.left) / rect.width * 100))
   }
+  return <div className="harvest"><p className="muted">Jugador {player} · Atrapa el maíz sagrado y evita las piedras.</p><div className="harvest-hud"><span><Wheat size={18} /> {view.score}</span><span>{view.time}s</span></div><div ref={area} className="harvest-area" onPointerMove={event => move(event.clientX)} onPointerDown={event => { if (!running || view.time === 0 || event.target.closest('button')) return; event.currentTarget.setPointerCapture(event.pointerId); move(event.clientX) }} onKeyDown={event => { if (['ArrowLeft', 'ArrowRight'].includes(event.key)) event.preventDefault(); if (event.key === 'ArrowLeft') basket.current = Math.max(12, basket.current - 8); if (event.key === 'ArrowRight') basket.current = Math.min(88, basket.current + 8) }} tabIndex={0} aria-label="Cosecha, mueve el puntero o usa las flechas"><div className="harvest-temple"><Sigil size={120} /></div>{view.items.map(item => <span key={item.id} className={`harvest-item ${item.corn ? 'corn-item' : 'stone-item'}`} style={{ left: `${item.x}%`, top: `${item.y}%` }}>{item.corn ? <Wheat size={27} /> : '◆'}</span>)}<div className="harvest-basket" style={{ left: `${view.position}%` }}><Wheat size={25} /></div>{!running && <button className="gold-button harvest-start" onClick={() => { setRunning(true); area.current?.focus() }}>Comenzar cosecha <ArrowRight size={17} /></button>}{view.time === 0 && <div className="harvest-result"><Sparkles size={28} /><h3>{view.score} maíces sagrados</h3><p>Comenzarás con {3 + Math.min(2, Math.floor(view.score / 3))} de energía.</p><button className="gold-button" onClick={() => onFinish(3 + Math.min(2, Math.floor(view.score / 3)))}>Continuar <ArrowRight size={16} /></button></div>}</div><p className="micro muted">Mueve la canasta con el mouse, el dedo o las flechas del teclado.</p></div>
+}
 
-return (
-    <div 
-      onClick= { onClick }
-className = {`relative rounded-xl border-2 shadow-xl shrink-0 transition-transform cursor-pointer overflow-hidden
-        ${card.color} ${isSelected ? 'ring-4 ring-yellow-400 -translate-y-2 z-20 scale-105' : 'z-10'}
-        w-[90px] h-[130px] md:w-32 md:h-48 flex flex-col items-center p-1 md:p-2 text-center text-slate-200 select-none`}
-    >
-    <div className="absolute top-0 left-0 bg-yellow-500 text-black font-black text-[10px] md:text-xs px-1.5 py-0.5 rounded-br-lg z-10 flex items-center shadow-md" >
-        { card.cost }🌽
-</div>
-    < div className = "absolute top-0 right-0 bg-slate-800/80 p-1 rounded-bl-lg z-10 hover:bg-slate-700" onClick = {(e) => { e.stopPropagation(); onInfo(card); }}>
-        <Info size={ 12 } className = "text-slate-300 md:w-4 md:h-4" />
-            </div>
+function Rules() {
+  return <div className="rules-content"><p>El mundo espera un nuevo amanecer. Invoca a los personajes del Popol Vuh y reduce la vida del héroe rival de <strong>30 a 0</strong>.</p><div className="rule-row"><Wheat /><div><h3>El maíz es tu energía</h3><p>Paga el costo para invocar tantas cartas como puedas. Recuperas tu energía y ganas un cristal adicional cada turno, hasta 10.</p></div></div><div className="rule-row"><Swords /><div><h3>Tres caminos al combate</h3><p>Elige una criatura lista y luego Fuerza, Magia o Astucia. Ataca el atributo más débil de tu rival. Las criaturas contraatacan y conservan el daño recibido.</p></div></div><div className="rule-row"><Shield /><div><h3>Protege a tus dioses</h3><p>Debes eliminar a las criaturas con Guardia antes de atacar otros objetivos. Cada criatura ataca una vez por turno; las recién invocadas esperan, salvo que tengan Prisa.</p></div></div><div className="rule-row"><Sparkles /><div><h3>Encuentra tus sinergias</h3><p>Combina personajes de la misma facción para activar sus habilidades. Hay curaciones, robo de cartas, daño en área y bendiciones.</p></div></div><div className="rule-note"><span>ATAJOS DEL DUELO</span><p><kbd>1</kbd> Fuerza <kbd>2</kbd> Magia <kbd>3</kbd> Astucia <kbd>Esc</kbd> Cancelar</p></div></div>
+}
 
-            {card.imageUrl ? (
-                <div className="w-full h-16 md:h-24 mt-2 mb-1 flex items-center justify-center overflow-hidden px-1 shrink-0">
-                    <img src={card.imageUrl} alt={card.name} className="w-full h-full object-cover rounded shadow-md border border-slate-700/50" />
-                </div>
-            ) : (
-                <div className="text-3xl md:text-4xl mt-3 mb-1 filter drop-shadow-md">{card.img}</div>
-            )}
-                < div className = "font-bold text-[9px] md:text-sm leading-tight line-clamp-2 w-full" > { card.name } </div>
-                    < div className = "text-[8px] md:text-[10px] text-gray-400 uppercase tracking-tighter w-full truncate" > { card.faction } </div>
-
-                        < div className = "mt-auto w-full flex justify-between px-1 bg-black/50 rounded py-0.5" >
-                            <div className="flex flex-col items-center" > <Swords size={ 12 } className = "text-red-400" /> <span className="font-bold text-[10px] text-red-300" > { card.fd } < /span></div >
-                                <div className="flex flex-col items-center" > <Zap size={ 12 } className = "text-blue-400" /> <span className="font-bold text-[10px] text-blue-300" > { card.pc } < /span></div >
-                                    <div className="flex flex-col items-center" > <Brain size={ 12 } className = "text-emerald-400" /> <span className="font-bold text-[10px] text-emerald-300" > { card.as } < /span></div >
-                                        </div>
-
-{
-    showActions && (
-        <div className="absolute inset-0 bg-black/80 flex items-center justify-center gap-2 z-30" >
-            <button onClick={ (e) => { e.stopPropagation(); onAction('fd'); } } className = "p-1.5 md:p-2 bg-red-600 rounded-full shadow-lg" > <Swords size={ 16 } color = "white" /> </button>
-                < button onClick = {(e) => { e.stopPropagation(); onAction('pc'); }
-} className = "p-1.5 md:p-2 bg-blue-600 rounded-full shadow-lg" > <Zap size={ 16 } color = "white" /> </button>
-    < button onClick = {(e) => { e.stopPropagation(); onAction('as'); }} className = "p-1.5 md:p-2 bg-emerald-600 rounded-full shadow-lg" > <Brain size={ 16 } color = "white" /> </button>
-        </div>
-      )}
-</div>
-  );
-};
-
-// --- APLICACIÓN PRINCIPAL ---
 export default function App() {
-    const [gameState, setGameState] = useState('menu'); // menu, minigame, transition, playing, gameover
+  const [game, dispatch] = useReducer(gameReducer, { mode: 'ai' }, createGame)
+  const [selected, setSelected] = useState(null), [stance, setStance] = useState('fd')
+  const [dragging, setDragging] = useState(false)
+  const [modal, setModal] = useState(null), [inspected, setInspected] = useState(null)
+  const [soundOn, setSoundOn] = useState(() => localStorage.getItem('popol-sound') !== 'false')
+  const [reducedMotion, setReducedMotion] = useState(() => localStorage.getItem('popol-motion') === 'true')
+  const [collectionFilter, setCollectionFilter] = useState('Todas'), [collectionSearch, setCollectionSearch] = useState('')
+  const [showJournal, setShowJournal] = useState(false), [privacy, setPrivacy] = useState(false)
+  const [newMode, setNewMode] = useState('ai'), [withHarvest, setWithHarvest] = useState(false)
+  const [harvestPlayer, setHarvestPlayer] = useState(1), [harvestMana, setHarvestMana] = useState(3)
+  const timers = useRef([]), [toast, setToast] = useState(null)
+  const isAiTurn = game.mode === 'ai' && game.turn === 2
+  const currentNumber = game.mode === 'ai' ? 1 : game.turn, opponentNumber = currentNumber === 1 ? 2 : 1
+  const player = game.players[currentNumber], opponent = game.players[opponentNumber]
+  const canAct = !isAiTurn && !privacy && game.phase === 'playing'
+  const selectedCard = [...player.hand, ...player.board].find(card => card.uid === selected)
+  const inHand = player.hand.some(card => card.uid === selected)
+  const attacker = !inHand && selectedCard?.ready ? selectedCard : null
+  const targets = attacker ? getLegalTargets(game, attacker.uid) : { creatures: [], hero: false, guarded: false }
+  const latestEffect = game.effect
 
-    // Estado del Minijuego
-    const [minigamePlayer, setMinigamePlayer] = useState(1);
-    const [p1ManaScore, setP1ManaScore] = useState(1);
-
-    const [turn, setTurn] = useState(1);
-    const [players, setPlayers] = useState({
-        1: { hp: 20, maxMana: 1, mana: 1, hand: [], board: [], hasPlayedCard: false, hasAttacked: false },
-        2: { hp: 20, maxMana: 1, mana: 1, hand: [], board: [], hasPlayedCard: false, hasAttacked: false }
-    });
-    const [deck, setDeck] = useState([]);
-    const [selectedHandCard, setSelectedHandCard] = useState(null);
-    const [selectedBoardCard, setSelectedBoardCard] = useState(null);
-    const [combatLog, setCombatLog] = useState(["¡Bienvenido a la Creación!"]);
-    const [winner, setWinner] = useState(null);
-
-    const [isShaking, setIsShaking] = useState(false);
-    const [floatingDamage, setFloatingDamage] = useState({ show: false, val: 0, player: 1 });
-    const [infoModal, setInfoModal] = useState(null);
-
-    useEffect(() => {
-        const styleSheet = document.createElement("style");
-        styleSheet.innerText = customStyles;
-        document.head.appendChild(styleSheet);
-        return () => document.head.removeChild(styleSheet);
-    }, []);
-
-    const triggerShake = (playerHit, damage) => {
-        setIsShaking(true);
-        if (damage > 0) setFloatingDamage({ show: true, val: damage, player: playerHit });
-        setTimeout(() => { setIsShaking(false); }, 400);
-        setTimeout(() => { setFloatingDamage({ show: false, val: 0, player: 1 }); }, 1000);
-    };
-
-    const createDeck = () => {
-        let newDeck = [];
-        for (let i = 0; i < 3; i++) {
-            BASE_CARDS.forEach(c => newDeck.push({ ...c, uid: Math.random().toString(36).substr(2, 9) }));
-        }
-        return newDeck.sort(() => Math.random() - 0.5);
-    };
-
-    const logEvent = (msg) => setCombatLog(prev => [msg, ...prev].slice(0, 4));
-
-    // --- TRANSICIONES Y FLUJO ---
-    const startMinigames = () => {
-        playSound('play');
-        setMinigamePlayer(1);
-        setGameState('minigame');
-    };
-
-    const handleMinigameFinish = (earnedMana) => {
-        if (minigamePlayer === 1) {
-            setP1ManaScore(earnedMana);
-            setMinigamePlayer(2);
-        } else {
-            initCardGame(p1ManaScore, earnedMana);
-        }
-    };
-
-    const initCardGame = (mana1, mana2) => {
-        const newDeck = createDeck();
-        setPlayers({
-            1: { hp: 20, maxMana: mana1, mana: mana1, hand: newDeck.slice(0, 5), board: [], hasPlayedCard: false, hasAttacked: false },
-            2: { hp: 20, maxMana: mana2, mana: mana2, hand: newDeck.slice(5, 10), board: [], hasPlayedCard: false, hasAttacked: false }
-        });
-        setDeck(newDeck.slice(10));
-        setTurn(1);
-        setCombatLog([`J1 empieza con ${mana1}🌽. J2 empieza con ${mana2}🌽.`]);
-        setGameState('transition');
-    };
-
-    // --- LOGICA DE BATALLA ---
-    const endTurn = () => {
-        playSound('play');
-        const nextTurn = turn === 1 ? 2 : 1;
-        let nextPlayer = { ...players[nextTurn] };
-        let currentDeck = [...deck];
-
-        if (nextPlayer.hand.length < 6 && currentDeck.length > 0) {
-            nextPlayer.hand.push(currentDeck.pop());
-        }
-
-        const newMaxMana = Math.min(nextPlayer.maxMana + 1, 10);
-        nextPlayer.maxMana = newMaxMana;
-        nextPlayer.mana = newMaxMana;
-        nextPlayer.hasPlayedCard = false;
-        nextPlayer.hasAttacked = false;
-
-        setPlayers(prev => ({ ...prev, [nextTurn]: nextPlayer }));
-        setDeck(currentDeck);
-
-        setSelectedHandCard(null);
-        setSelectedBoardCard(null);
-        setTurn(nextTurn);
-        setGameState('transition');
-    };
-
-    const playCardToBoard = () => {
-        if (selectedHandCard === null || players[turn].hasPlayedCard) return;
-        const cardToPlay = players[turn].hand[selectedHandCard];
-
-        if (players[turn].mana < cardToPlay.cost) {
-            logEvent(`¡No hay suficiente Maíz (${cardToPlay.cost} req)!`);
-            playSound('error');
-            return;
-        }
-
-        if (players[turn].board.length >= 3) {
-            logEvent("Tu tablero está lleno (Máx 3).");
-            playSound('error');
-            return;
-        }
-
-        setPlayers(prev => {
-            const newHand = [...prev[turn].hand];
-            newHand.splice(selectedHandCard, 1);
-            return {
-                ...prev,
-                [turn]: {
-                    ...prev[turn],
-                    mana: prev[turn].mana - cardToPlay.cost,
-                    hand: newHand,
-                    board: [...prev[turn].board, cardToPlay],
-                    hasPlayedCard: true
-                }
-            };
-        });
-
-        playSound('play');
-        logEvent(`Invocaste a ${cardToPlay.name}.`);
-        setSelectedHandCard(null);
-    };
-
-    const executeAttack = (stat) => {
-        if (selectedBoardCard === null || players[turn].hasAttacked) return;
-
-        const opponent = turn === 1 ? 2 : 1;
-        const attackerCard = players[turn].board[selectedBoardCard];
-
-        if (players[opponent].board.length === 0) {
-            const damage = attackerCard[stat];
-            playSound('hit');
-            triggerShake(opponent, damage);
-
-            setPlayers(prev => ({
-                ...prev,
-                [opponent]: { ...prev[opponent], hp: Math.max(0, prev[opponent].hp - damage) },
-                [turn]: { ...prev[turn], hasAttacked: true }
-            }));
-            logEvent(`¡${attackerCard.name} atacó directamente por ${damage} de daño!`);
-            setSelectedBoardCard(null);
-            if (players[opponent].hp - damage <= 0) {
-                setWinner(turn);
-                setGameState('gameover');
-            }
-        } else {
-            playSound('play');
-            logEvent(`Selecciona objetivo enemigo para atacar con ${stat.toUpperCase()}`);
-            setSelectedBoardCard({ index: selectedBoardCard, stat: stat });
-        }
-    };
-
-    const resolveCombat = (targetIndex) => {
-        if (typeof selectedBoardCard !== 'object' || selectedBoardCard === null) return;
-
-        const opponent = turn === 1 ? 2 : 1;
-        const attackerIdx = selectedBoardCard.index;
-        const stat = selectedBoardCard.stat;
-
-        const attackerCard = players[turn].board[attackerIdx];
-        const defenderCard = players[opponent].board[targetIndex];
-
-        const attVal = attackerCard[stat];
-        const defVal = defenderCard[stat];
-        const statName = stat === 'fd' ? 'Fuerza' : stat === 'pc' ? 'Magia' : 'Astucia';
-
-        let newAttackerBoard = [...players[turn].board];
-        let newDefenderBoard = [...players[opponent].board];
-
-        playSound('attack');
-
-        if (attVal > defVal) {
-            logEvent(`¡Victorioso! ${attackerCard.name} eliminó a ${defenderCard.name} en ${statName}.`);
-            triggerShake(opponent, 0);
-            newDefenderBoard.splice(targetIndex, 1);
-        } else if (defVal > attVal) {
-            logEvent(`¡Derrota! ${defenderCard.name} fue superior en ${statName}.`);
-            triggerShake(turn, 0);
-            newAttackerBoard.splice(attackerIdx, 1);
-        } else {
-            logEvent(`Empate colosal en ${statName}. Ambas deidades fueron destruidas.`);
-            triggerShake(1, 0);
-            newAttackerBoard.splice(attackerIdx, 1);
-            newDefenderBoard.splice(targetIndex, 1);
-        }
-
-        setPlayers(prev => ({
-            ...prev,
-            [turn]: { ...prev[turn], board: newAttackerBoard, hasAttacked: true },
-            [opponent]: { ...prev[opponent], board: newDefenderBoard }
-        }));
-        setSelectedBoardCard(null);
-    };
-
-    // --- VISTAS ---
-    if (gameState === 'menu') {
-        return (
-            <div className= "min-h-[100dvh] overscroll-none touch-none bg-slate-950 text-white flex flex-col items-center justify-center p-4" >
-            <h1 className="text-5xl md:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-br from-yellow-400 to-red-600 mb-2 text-center" > POPOL VUH </h1>
-                < p className = "text-slate-400 mb-12 text-sm md:text-lg italic text-center px-4 max-w-md" > "Todo estaba en suspenso, en calma, en silencio..." </p>
-                    < button onClick = { startMinigames } className = "px-8 py-4 bg-red-800 rounded-full font-bold text-xl shadow-[0_0_20px_rgba(255,0,0,0.4)] flex gap-2 active:scale-95 transition-transform text-white" >
-                        <Play /> Jugar (Local 2P)
-                        </button>
-                        </div>
-    );
+  useEffect(() => {
+    if (!isAiTurn || game.phase !== 'playing' || modal || inspected || privacy) return
+    const timer = setTimeout(() => dispatch(chooseAiAction(game) || { type: 'END_TURN' }), reducedMotion ? 400 : 1100)
+    return () => clearTimeout(timer)
+  }, [game, isAiTurn, modal, inspected, privacy, reducedMotion])
+  useEffect(() => { if (game.effect) sound(game.effect.type, soundOn) }, [game.effect, soundOn])
+  useEffect(() => {
+    function onKey(event) {
+      if (modal || inspected || privacy || ['INPUT', 'SELECT', 'TEXTAREA'].includes(event.target.tagName)) return
+      if (event.key === 'Escape') setSelected(null)
+      if (attacker && ['1', '2', '3'].includes(event.key)) setStance(['fd', 'pc', 'as'][Number(event.key) - 1])
     }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [attacker, modal, inspected, privacy])
+  useEffect(() => () => timers.current.forEach(clearTimeout), [])
 
-    if (gameState === 'minigame') {
-        return <CosechaPaxil key={ minigamePlayer } player = { minigamePlayer } onFinish = { handleMinigameFinish } />;
-    }
-
-    if (gameState === 'transition') {
-        return (
-            <div className= "min-h-[100dvh] overscroll-none touch-none bg-slate-950 flex flex-col items-center justify-center text-white p-6 text-center select-none" >
-            <h2 className="text-4xl font-bold text-yellow-500 mb-4" > Turno del Jugador { turn } </h2>
-                < p className = "text-slate-400 mb-8" > Pasa el teléfono al Jugador { turn }. ¡No mires sus cartas! </p>
-                    < button onClick = {() => { playSound('play'); setGameState('playing'); }
-    } className = "px-8 py-4 bg-slate-800 rounded-xl font-bold border-2 border-slate-600 active:scale-95 flex items-center gap-2 text-xl shadow-lg hover:bg-slate-700" >
-        <UserX /> ¡Estoy Listo!
-        </button>
-        </div>
-    );
-}
-
-if (gameState === 'gameover') {
-    return (
-        <div className= "min-h-[100dvh] overscroll-none touch-none bg-slate-950 flex flex-col items-center justify-center text-white p-4 text-center" >
-        <h2 className="text-5xl font-black text-yellow-500 mb-4" >¡JUGADOR { winner } GANA! </h2>
-            < p className = "text-slate-400 mb-8" > Una nueva era ha comenzado.</p>
-                < button onClick = {() => setGameState('menu')
-} className = "px-6 py-3 bg-slate-800 rounded-lg font-bold border border-slate-600 flex gap-2" >
-    <RefreshCw /> Jugar de Nuevo
-    </button>
-    </div>
-    );
+  function notify(text) {
+    setToast(text); timers.current.forEach(clearTimeout)
+    timers.current = [setTimeout(() => setToast(null), 2800)]
   }
+  function selectCard(card, hand) {
+    if (!canAct) return
+    if (!hand && !card.ready) { notify('Esta criatura está descansando. Estará lista en tu próximo turno.'); return }
+    setSelected(selected === card.uid ? null : card.uid)
+  }
+  function playHandCard(uid) {
+    if (!canAct) return
+    const card = player.hand.find(handCard => handCard.uid === uid)
+    if (!card) { notify('Selecciona una carta de tu mano para jugarla.'); return }
+    if (card.cost > player.mana) { notify('Necesitas más energía de maíz para jugar esta carta.'); sound('error', soundOn); return }
+    if (card.type !== 'spell' && player.board.length >= 5) { notify('Tu terreno está lleno: máximo 5 criaturas.'); return }
+    dispatch({ type: 'PLAY', uid: card.uid }); setSelected(null); setDragging(false)
+  }
+  function invoke() {
+    if (inHand && selectedCard) playHandCard(selectedCard.uid)
+  }
+  function allowCardDrop(event) {
+    if (!canAct || !event.dataTransfer.types.includes('text/plain')) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+  }
+  function dropCard(event) {
+    event.preventDefault()
+    event.stopPropagation()
+    if (!canAct) return
+    playHandCard(event.dataTransfer.getData('text/plain'))
+  }
+  function attack(targetUid, hero = false) {
+    if (!canAct || !attacker) return
+    if (hero ? !targets.hero : !targets.creatures.includes(targetUid)) { notify('Debes derrotar a las criaturas con Guardia primero.'); return }
+    dispatch({ type: 'ATTACK', uid: attacker.uid, targetUid, targetHero: hero, stat: stance }); setSelected(null)
+  }
+  function endTurn() {
+    if (!canAct) return
+    setSelected(null); if (game.mode === 'local') setPrivacy(true)
+    dispatch({ type: 'END_TURN' })
+  }
+  function begin(mana1 = 3, mana2 = 3) {
+    const fresh = createGame({ mode: newMode })
+    fresh.players[1].mana = fresh.players[1].maxMana = mana1; fresh.players[2].mana = fresh.players[2].maxMana = mana2
+    dispatch({ type: 'RESET', game: fresh })
+    setSelected(null); setDragging(false); setModal(null); setPrivacy(false); setInspected(null); sound('turn', soundOn)
+  }
+  function startNewGame() { if (withHarvest) { setHarvestPlayer(1); setModal('harvest') } else begin() }
+  function finishHarvest(mana) {
+    if (harvestPlayer === 1 && newMode === 'local') { setHarvestMana(mana); setHarvestPlayer(2) }
+    else begin(harvestPlayer === 1 ? mana : harvestMana, harvestPlayer === 2 ? mana : 3)
+  }
+  const filteredCards = CARDS.filter(card => (collectionFilter === 'Todas' || card.faction === collectionFilter) && card.name.toLocaleLowerCase('es').includes(collectionSearch.toLocaleLowerCase('es')))
 
-// --- VISTA DE JUEGO PRINCIPAL (CARTAS) ---
-const opponent = turn === 1 ? 2 : 1;
-const isTargeting = typeof selectedBoardCard === 'object' && selectedBoardCard !== null;
-const pTurn = players[turn];
-const pOpp = players[opponent];
+  return <div className={`game-app ${reducedMotion ? 'reduce-motion' : ''}`}>
+    <header className="topbar"><a className="brand" href="#arena" aria-label="Popol Vuh, arena" onClick={() => { setModal(null); setInspected(null) }}><Sigil size={42} /><div><span>POPOL VUH</span><small>EL DESPERTAR DE LOS DIOSES</small></div></a><nav aria-label="Navegación principal"><button className={!modal ? 'nav-active' : ''} onClick={() => setModal(null)}><Swords size={16} /> Arena</button><button className={modal === 'collection' ? 'nav-active' : ''} onClick={() => setModal('collection')}><BookOpen size={16} /> Colección <span className="nav-count">{CARDS.length}</span></button><button onClick={() => setModal('rules')}><CircleHelp size={16} /> Cómo jugar</button></nav><div className="topbar-actions"><button className="icon-button sound-toggle" title={soundOn ? 'Silenciar sonido' : 'Activar sonido'} aria-label={soundOn ? 'Silenciar sonido' : 'Activar sonido'} onClick={() => { const next = !soundOn; setSoundOn(next); localStorage.setItem('popol-sound', String(next)); sound('turn', next) }}>{soundOn ? <Volume2 size={18} /> : <VolumeX size={18} />}</button><button className="icon-button" aria-label="Ajustes" onClick={() => setModal('settings')}><Settings2 size={18} /></button><button className="new-duel" aria-label="Nuevo duelo" onClick={() => setModal('new')}><RotateCcw size={14} /><span>Nuevo duelo</span></button></div></header>
 
-return (
-    <div className= {`min-h-[100dvh] max-h-[100dvh] overscroll-none touch-none bg-slate-900 text-slate-100 flex flex-col overflow-hidden select-none ${isShaking ? 'shake-effect' : ''}`}>
+    <main id="arena" className="arena">
+      <BattleEffects effect={latestEffect} reducedMotion={reducedMotion} />
+      <div className="arena-background" /><div className="arena-vignette" /><div className="arena-grain" />
+      <div className="embers" aria-hidden="true">{Array.from({ length: 14 }, (_, index) => <i key={index} style={{ '--i': index, left: `${(index * 73 + 13) % 100}%`, animationDelay: `${index * -.9}s` }} />)}</div>
+      <div className="arena-topline"><span><span className="live-dot" /> {game.mode === 'ai' ? 'DUELO CONTRA XIBALBÁ' : 'DUELO LOCAL · 2 JUGADORES'}</span><span>EL TEMPLO DEL PRIMER AMANECER <Sigil size={15} /></span></div>
+      <div className="opponent-zone"><div className="opponent-label"><div><span>{game.mode === 'ai' ? 'SEÑOR DE XIBALBÁ' : `JUGADOR ${opponentNumber}`}</span><small>{isAiTurn ? 'Está preparando su siguiente movimiento…' : 'El inframundo aguarda'}</small></div><Hero player={opponent} number={opponentNumber} enemy targetable={canAct && targets.hero} onClick={() => attack(null, true)} effect={latestEffect} /><div className="opponent-energy"><Wheat size={15} /><strong>{opponent.mana}</strong><span>/{opponent.maxMana}</span></div></div><div className="opponent-hand" aria-label={`Mano rival, ${opponent.hand.length} cartas`}>{opponent.hand.map((card, index) => <div key={card.uid} style={{ '--back-angle': `${(index - (opponent.hand.length - 1) / 2) * 6}deg` }}><CardBack small /></div>)}</div></div>
 
-        { infoModal && (
-            <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm" onClick = {() => setInfoModal(null)}>
-                <div className={ `bg-slate-900 border-2 ${infoModal.color.split(' ')[1]} rounded-2xl p-6 max-w-sm w-full shadow-2xl relative` } onClick = { e => e.stopPropagation() } >
-                    <button className="absolute top-3 right-3 text-gray-400 hover:text-white" onClick = {() => setInfoModal(null)}> <X/></button >
-                        {infoModal.imageUrl ? (
-                            <div className="w-full h-48 mb-4 rounded-xl overflow-hidden border-2 border-slate-700 shadow-inner">
-                                <img src={infoModal.imageUrl} alt={infoModal.name} className="w-full h-full object-cover" />
-                            </div>
-                        ) : (
-                            <div className="text-4xl text-center mb-2">{infoModal.img}</div>
-                        )}
-                            < h3 className = "text-xl font-bold text-center text-yellow-500 leading-tight" > { infoModal.name } </h3>
-                                < p className = "text-xs text-center text-gray-400 uppercase tracking-wider mb-4" > { infoModal.faction } • Costo: { infoModal.cost }🌽</p>
-                                    < div className = "bg-slate-950 p-3 rounded-lg mb-4 text-sm text-slate-300 italic border border-slate-800" >
-                                        "{infoModal.lore.general}"
-                                        </div>
-                                        < div className = "space-y-2" >
-                                            <div className="flex gap-2 text-sm" > <Swords size={ 16 } className = "text-red-400 shrink-0" /> <span className="text-slate-300" > { infoModal.lore.fd || "Fuerza Estándar." } < /span></div >
-                                                <div className="flex gap-2 text-sm" > <Zap size={ 16 } className = "text-blue-400 shrink-0" /> <span className="text-slate-300" > { infoModal.lore.pc || "Magia Estándar." } < /span></div >
-                                                    <div className="flex gap-2 text-sm" > <Brain size={ 16 } className = "text-emerald-400 shrink-0" /> <span className="text-slate-300" > { infoModal.lore.as || "Astucia Estándar." } < /span></div >
-                                                        </div>
-                                                        </div>
-                                                        </div>
-      )}
+      <div className="battle-layout"><aside className="duel-sidebar"><div className="chapter-mark"><span>CAPÍTULO I</span><div className="small-rule" /><h1>El primer<br /><em>amanecer.</em></h1><p>De la oscuridad,<br />un nuevo mundo.</p></div><div className="round-display"><span className="round-numeral">{String(game.round).padStart(2, '0')}</span><div><span>RONDA</span><small>{canAct ? 'Tu destino te espera' : 'El destino se escribe'}</small></div></div><div className="journal"><button className="journal-toggle" onClick={() => setShowJournal(!showJournal)} aria-expanded={showJournal}><ScrollText size={15} /> Crónica del duelo <ChevronDown size={13} className={showJournal ? 'rotate' : ''} /></button><div className={`journal-events ${showJournal ? 'journal-expanded' : ''}`}>{game.log.slice(0, showJournal ? 8 : 3).map((entry, index) => <div key={entry.id} className={index === 0 ? 'latest-log' : ''}><span className={`log-dot log-${entry.type}`} /><p>{entry.text}</p></div>)}</div></div><div className="sidebar-bottom"><Shield size={13} /><span>Un duelo. Dos destinos.</span></div></aside>
 
-{/* HEADER HP / LOGS */ }
-<div className="bg-slate-950 p-2 border-b border-slate-800 flex justify-between items-center text-xs md:text-sm z-10 shrink-0" >
-    <div className="truncate text-yellow-400 italic flex-1 mr-2 px-2 py-1 bg-black/50 rounded border border-slate-800 shadow-inner" >
-        { combatLog[0]}
-        </div>
-        < div className = "flex gap-2 font-bold shrink-0" >
-            <div className="relative px-3 py-1 bg-red-950/50 border border-red-900 rounded text-red-200" >
-                J1 ❤️ { players[1].hp }
-{ floatingDamage.show && floatingDamage.player === 1 && <span className="damage-float right-0" > -{ floatingDamage.val } </span> }
-</div>
-    < div className = "relative px-3 py-1 bg-red-950/50 border border-red-900 rounded text-red-200" >
-        J2 ❤️ { players[2].hp }
-{ floatingDamage.show && floatingDamage.player === 2 && <span className="damage-float right-0" > -{ floatingDamage.val } </span> }
-</div>
-    </div>
-    </div>
+        <section className="battlefield" aria-label="Campo de batalla"><div className="board-row enemy-row"><span className="terrain-label">TERRENO DE XIBALBÁ <span>◆</span></span><div className="board-slots">{Array.from({ length: 5 }, (_, index) => { const card = opponent.board[index], targetable = canAct && targets.creatures.includes(card?.uid), preview = attacker && card ? combatPreview(attacker, card, stance) : null; return <div key={card?.uid || `enemy-${index}`} className={`board-slot ${card ? 'slot-occupied' : ''} ${latestEffect?.target === card?.uid && card ? 'slot-impact' : ''}`} data-card-id={card?.uid}>{card ? <><GameCard card={card} variant="board" enemy targeting={targetable} exhausted={!card.ready} onClick={() => attack(card.uid)} onInspect={() => setInspected(card)} />{targetable && preview && <span className="combat-preview">−{preview.damage} vida{preview.defenderDies ? ' · Letal' : ''}</span>}</> : <div className="empty-slot"><Sigil size={36} /><span>ALTAR {index + 1}</span></div>}</div> })}</div></div>
+          <div className="battle-divider"><span /><div><Sigil size={31} /><span>{attacker ? 'ELIGE TU OBJETIVO' : isAiTurn ? 'TURNO DEL RIVAL' : 'LA CREACIÓN ESTÁ EN TUS MANOS'}</span><Sigil size={31} /></div><span /></div>
+          <div className="board-row friendly-row" onDragOver={allowCardDrop} onDrop={dropCard}><div className="board-slots">{Array.from({ length: 5 }, (_, index) => { const card = player.board[index]; return <div key={card?.uid || `friendly-${index}`} className={`board-slot ${card ? 'slot-occupied' : ''} ${latestEffect?.type === 'summon' && latestEffect.source === card?.uid && card ? 'slot-summon' : ''} ${latestEffect?.type === 'attack' && latestEffect.source === card?.uid && card ? 'slot-attacking' : ''}`} data-card-id={card?.uid} onDragOver={!card ? allowCardDrop : undefined} onDrop={!card ? dropCard : undefined}>{card ? <GameCard card={card} variant="board" selected={selected === card.uid} playable={canAct && card.ready} exhausted={!card.ready} onClick={() => selectCard(card, false)} onInspect={() => setInspected(card)} /> : <button className={`empty-slot ${inHand && canAct && selectedCard?.type !== 'spell' ? 'slot-invoke' : ''}`} disabled={!inHand || !canAct || selectedCard?.type === 'spell'} onClick={invoke} aria-label={`Altar ${index + 1}${inHand ? ', invocar carta seleccionada' : ', vacío'}`}><Sigil size={36} /><span>{inHand && selectedCard?.type !== 'spell' ? 'INVOCAR AQUÍ' : `ALTAR ${index + 1}`}</span></button>}</div> })}</div><span className="terrain-label friendly-terrain">TU TERRENO <span>◆</span></span></div>
+        </section>
 
-{/* CAMPO DE BATALLA */ }
-<div className="flex-1 flex flex-col bg-[url('https://www.transparenttextures.com/patterns/stardust.png')] min-h-0" >
-    <div className="flex-1 flex flex-col items-center justify-end pb-2 relative border-b-2 border-dashed border-slate-700/50" >
-        <div className="absolute top-2 left-1/2 -translate-x-1/2 text-[10px] uppercase tracking-widest text-slate-500 bg-slate-900/80 px-3 py-1 rounded-full border border-slate-800 shadow" >
-            Terreno Enemigo
-{ pOpp.board.length === 0 && <span className="text-red-500 font-bold ml-1" >¡VULNERABLE! </span> }
-</div>
-    < div className = "flex gap-2 items-center px-2" >
-        {
-            pOpp.board.length === 0 ? (
-                <div className= "w-[90px] h-[130px] rounded-xl border-2 border-slate-800/50 border-dashed flex items-center justify-center opacity-30 text-xs text-center p-2" > Vacío </div>
-             ) : (
-                    pOpp.board.map((card, idx) => (
-                        <div key= { card.uid } className = { isTargeting? 'ring-4 ring-red-500 rounded-xl animate-pulse cursor-crosshair': '' } onClick = {() => isTargeting && resolveCombat(idx)}>
-                    <Card card={ card } onInfo = { setInfoModal } />
-                    </div>
-                    ))
-             )}
-</div>
-    </div>
+        <aside className="turn-sidebar"><div className={`turn-badge ${isAiTurn ? 'rival-turn' : ''}`}><div className="turn-badge-icon">{isAiTurn ? <Flame size={25} /> : <Swords size={25} />}</div><span>{isAiTurn ? 'SU TURNO' : 'TU TURNO'}</span><small>{isAiTurn ? 'Xibalbá mueve sus piezas' : 'Haz que cuente.'}</small></div><div className="mana-display"><div className="mana-top"><Wheat size={23} /><strong>{player.mana}<span> / {player.maxMana}</span></strong></div><span className="mana-caption">ENERGÍA DE MAÍZ</span><div className="mana-crystals" aria-label={`${player.mana} de ${player.maxMana} energía`}>{Array.from({ length: 10 }, (_, index) => <i key={index} className={`${index < player.mana ? 'crystal-full' : ''} ${index >= player.maxMana ? 'crystal-locked' : ''}`} />)}</div></div><button className="end-turn" onClick={endTurn} disabled={!canAct}><span>TERMINAR TURNO</span><ChevronRight size={21} /></button><p className="turn-tip">{isAiTurn ? 'Observa la estrategia de tu rival.' : 'Tu energía se renueva al comenzar el próximo turno.'}</p><div className="deck-display"><div className="deck-stack"><CardBack small /><span>{player.deck.length}</span></div><div><span>TU MAZO</span><small>{player.deck.length} cartas restantes</small></div></div><button className="rules-shortcut" onClick={() => setModal('rules')}><CircleHelp size={13} /> Las reglas del destino</button></aside>
+      </div>
 
-    < div className = "flex-1 flex flex-col items-center justify-start pt-2 relative" >
-        <div className="flex gap-2 items-center px-2" >
-            {
-                pTurn.board.length === 0 ? (
-                    <div className= "w-[90px] h-[130px] rounded-xl border-2 border-slate-600 border-dashed flex items-center justify-center text-slate-500 text-xs text-center p-2" > Despliega < br /> aquí </div>
-             ) : (
-                        pTurn.board.map((card, idx) => (
-                            <Card 
-                    key= { card.uid } card = { card } onInfo = { setInfoModal }
-                    onClick = {() => { if(!pTurn.hasAttacked && !isTargeting) setSelectedBoardCard(idx); }}
-isSelected = { selectedBoardCard === idx}
-showActions = { selectedBoardCard === idx && !isTargeting}
-onAction = { executeAttack }
-    />
-               ))
-             )}
-</div>
-    < div className = "absolute bottom-2 left-1/2 -translate-x-1/2 text-[10px] uppercase tracking-widest text-yellow-500/50" > Tu Terreno </div>
-        </div>
-        </div>
+      <section className="hand-zone" aria-label="Tu mano"><div className="player-identity"><Hero player={player} number={currentNumber} effect={latestEffect} /><div><span>{game.mode === 'ai' ? 'HEREDERO DEL MAÍZ' : `JUGADOR ${currentNumber}`}</span><small><Leaf size={11} /> Hijos del amanecer</small><div className="hero-hp-track"><i style={{ width: `${player.hp / 30 * 100}%` }} /></div><span className="health-caption">{player.hp} / 30 VIDA</span></div></div><div className="hand-center"><div className="hand-instruction">{privacy ? <><Shield size={13} /><span>Tu mano permanece oculta durante el cambio de jugador</span></> : selectedCard ? <><Sparkles size={13} /><span>{inHand ? selectedCard.cost > player.mana ? 'Energía insuficiente · espera al siguiente turno' : selectedCard.type === 'spell' ? 'Desata el poder de tu hechizo' : 'Invoca esta carta en tu terreno' : 'Elige un atributo y después un objetivo'}</span></> : <><span className="hand-count">{player.hand.length}</span><span>TU MANO</span><span className="instruction-separator">·</span><span className="hand-hint">Selecciona o arrastra una carta</span></>}</div><div className={`player-hand ${player.hand.length >= 6 ? 'large-hand' : ''}`} data-hand-count={player.hand.length} aria-hidden={privacy}>{player.hand.map((card, index) => <div className="hand-card-wrap" key={card.uid} data-card-id={privacy ? undefined : card.uid} draggable={canAct} onDragStart={event => { if (!canAct) { event.preventDefault(); return } setDragging(true); setSelected(card.uid); event.dataTransfer.setData('text/plain', card.uid); event.dataTransfer.effectAllowed = 'move' }} onDragEnd={() => { setDragging(false); setSelected(null) }} style={{ '--fan-rotate': `${(index - (player.hand.length - 1) / 2) * 3}deg`, '--fan-offset': `${Math.abs(index - (player.hand.length - 1) / 2) * 5}px`, '--deal-delay': `${index * 70}ms` }}>{privacy ? <CardBack /> : <GameCard card={card} selected={selected === card.uid} playable={canAct && card.cost <= player.mana} onClick={() => selectCard(card, true)} onInspect={() => setInspected(card)} />}</div>)}</div></div><div className="hand-aside"><Sigil size={48} /><span>EL LIBRO<br />DEL CONSEJO</span><button onClick={() => setModal('collection')}>Ver las cartas <ArrowRight size={12} /></button></div></section>
+      {selectedCard && canAct && !dragging && <div className="selection-actions">{inHand ? <><span><strong>{selectedCard.name}</strong><small>{selectedCard.ability}</small></span><button className="gold-button" onClick={invoke} disabled={player.mana < selectedCard.cost || (selectedCard.type !== 'spell' && player.board.length >= 5)}><Sparkles size={16} />{selectedCard.type === 'spell' ? 'Lanzar hechizo' : 'Invocar'} <span>{selectedCard.cost}<Wheat size={12} /></span></button></> : <><span><strong>{selectedCard.name}</strong><small>{targets.guarded ? 'Una Guardia protege al rival' : 'Selecciona un enemigo o el héroe rival'}</small></span><div className="stance-buttons">{Object.keys(STATS).map((stat, index) => { const Icon = STAT_ICONS[stat]; return <button key={stat} className={`stance-${stat} ${stance === stat ? 'stance-active' : ''}`} onClick={() => setStance(stat)}><Icon size={16} /><span>{STATS[stat].name}</span><strong>{selectedCard[stat]}</strong><kbd>{index + 1}</kbd></button> })}</div></>}<button className="icon-button" aria-label="Cancelar selección" onClick={() => setSelected(null)}><X size={18} /></button></div>}
 
-{/* CONTROLES Y MANO */ }
-<div className="bg-slate-950 pb-4 pt-2 px-2 border-t border-slate-800 z-20 shrink-0" >
-    <div className="flex justify-between items-end mb-2 px-2" >
-        <div className="flex flex-col" >
-            <span className="text-yellow-500 font-bold text-lg flex items-center gap-1 shadow-sm" >
-              🌽 { pTurn.mana } <span className="text-slate-500 text-xs" > / {pTurn.maxMana}</span >
-    </span>
-    < div className = "flex gap-3 text-[10px] uppercase tracking-wider font-bold text-slate-400" >
-        <span className={ pTurn.hasPlayedCard ? 'text-red-900' : 'text-green-500' }> Invocación </span>
-            < span className = { pTurn.hasAttacked ? 'text-red-900' : 'text-green-500' } > Ataque </span>
-                </div>
-                </div>
+      {toast && <div className="game-toast" role="status"><CircleHelp size={17} />{toast}</div>}
+    </main>
+    <footer className="bottom-bar"><span><Sigil size={13} /> INSPIRADO EN EL POPOL VUH</span><span>Fuerza. Magia. Astucia.<i /> La historia la escribes tú.</span><button onClick={() => setModal('rules')}><Maximize2 size={11} /> CONOCE TU DESTINO</button></footer>
 
-                < div className = "flex gap-2" >
-                    { isTargeting && (
-                        <button onClick={ () => setSelectedBoardCard(null) } className = "px-3 py-2 bg-slate-800 text-slate-300 rounded-lg text-xs font-bold active:scale-95 border border-slate-700" > Cancelar </button>
-            )}
-<button onClick={ endTurn } className = "px-4 py-2 bg-slate-800 hover:bg-slate-700 text-yellow-500 font-black rounded-lg border border-slate-600 shadow-lg flex items-center gap-2 text-sm active:scale-95" >
-    Pasar < RefreshCw size = { 14} />
-        </button>
-        </div>
-        </div>
-
-        < div className = "flex gap-2 overflow-x-auto pb-4 pt-14 px-2 snap-x hide-scrollbar" >
-        {
-            pTurn.hand.map((card, idx) => (
-                <div key= { card.uid } className = "snap-center relative shrink-0" >
-                <Card 
-                  card={ card } onInfo = { setInfoModal }
-                  onClick = {() => !pTurn.hasPlayedCard && setSelectedHandCard(idx === selectedHandCard ? null : idx)}
-isSelected = { selectedHandCard === idx}
-                />
-{
-    selectedHandCard === idx && !pTurn.hasPlayedCard && (
-        <button 
-                    onClick={ playCardToBoard }
-    className = {`absolute -top-12 left-1/2 -translate-x-1/2 px-6 py-2.5 rounded-full font-black text-sm shadow-[0_0_20px_rgba(0,0,0,0.6)] whitespace-nowrap z-50 tracking-wider transition-all border-2 ${pTurn.mana >= card.cost ? 'bg-green-500 border-green-300 text-white animate-bounce' : 'bg-red-800 border-red-500 text-slate-300 opacity-90'}`
-}
-                  >
-    { pTurn.mana >= card.cost ? `BAJAR (-${card.cost}🌽)` : `FALTA 🌽` }
-    </button>
-                )}
-</div>
-          ))}
-<div className="flex gap-[-20px] ml-auto items-center opacity-30 pointer-events-none pr-4 shrink-0" >
-    <div className="text-[10px] text-slate-500 uppercase mr-2 writing-vertical" > Rival({ pOpp.hand.length }) </div>
-{ pOpp.hand.map((c, i) => <div key={ i } className = "w-8 h-12 bg-slate-800 border border-slate-700 rounded shadow -ml-4" > </div>) }
-</div>
-    </div>
-    </div>
-    </div>
-  );
+    {privacy && <Modal title={`Turno del Jugador ${game.turn}`} eyebrow="EL DESTINO CAMBIA DE MANOS" onClose={() => {}} className="privacy-modal"><Shield size={48} /><p>Pasa el dispositivo al Jugador {game.turn}. Su mano permanecerá oculta hasta que esté listo.</p><button className="gold-button" onClick={() => setPrivacy(false)}>Estoy listo <ArrowRight size={17} /></button></Modal>}
+    {modal === 'rules' && <Modal title="Escribe tu destino" onClose={() => setModal(null)}><Rules /></Modal>}
+    {modal === 'settings' && <Modal title="Tu experiencia" eyebrow="AJUSTES DEL DUELO" onClose={() => setModal(null)}><div className="settings-row"><div><h3>Efectos de sonido</h3><p>Invocaciones, impactos y cambios de turno.</p></div><button className={`toggle ${soundOn ? 'toggle-on' : ''}`} role="switch" aria-checked={soundOn} aria-label="Efectos de sonido" onClick={() => { setSoundOn(!soundOn); localStorage.setItem('popol-sound', String(!soundOn)) }}><i /></button></div><div className="settings-row"><div><h3>Reducir movimiento</h3><p>Una arena más tranquila, con menos animaciones.</p></div><button className={`toggle ${reducedMotion ? 'toggle-on' : ''}`} role="switch" aria-checked={reducedMotion} aria-label="Reducir movimiento" onClick={() => { setReducedMotion(!reducedMotion); localStorage.setItem('popol-motion', String(!reducedMotion)) }}><i /></button></div></Modal>}
+    {modal === 'new' && <Modal title="Un nuevo amanecer" eyebrow="ELIGE TU DUELO" onClose={() => setModal(null)}><p className="modal-intro">Dioses antiguos. Nuevas rivalidades. El destino vuelve a empezar.</p><div className="mode-options"><button className={newMode === 'ai' ? 'mode-selected' : ''} onClick={() => setNewMode('ai')}><Flame size={26} /><div><strong>Desafía a Xibalbá</strong><span>Un jugador · Rival con inteligencia propia</span></div>{newMode === 'ai' && <Check size={17} />}</button><button className={newMode === 'local' ? 'mode-selected' : ''} onClick={() => setNewMode('local')}><Swords size={26} /><div><strong>Duelo entre dos mundos</strong><span>Dos jugadores · Un mismo dispositivo</span></div>{newMode === 'local' && <Check size={17} />}</button></div><label className="harvest-option"><input type="checkbox" checked={withHarvest} onChange={event => setWithHarvest(event.target.checked)} /><Wheat size={19} /><span>Comenzar con la Cosecha de Paxil<small>Atrapa maíz para conseguir energía adicional.</small></span></label><button className="gold-button start-duel" onClick={startNewGame}><Swords size={17} /> COMENZAR DUELO <ArrowRight size={17} /></button></Modal>}
+    {modal === 'harvest' && <Modal title="La Cosecha de Paxil" eyebrow="ANTES DEL PRIMER AMANECER" onClose={() => setModal('new')}><Harvest key={harvestPlayer} player={harvestPlayer} onFinish={finishHarvest} /></Modal>}
+    {modal === 'collection' && <Modal title="Dioses, héroes y leyendas" eyebrow="TU COLECCIÓN · EL LIBRO DEL CONSEJO" onClose={() => setModal(null)} wide><div className="collection-toolbar"><input aria-label="Buscar cartas" placeholder="Busca una leyenda…" value={collectionSearch} onChange={event => setCollectionSearch(event.target.value)} /><span>{filteredCards.length} cartas</span></div><div className="faction-filters">{['Todas', ...new Set(CARDS.map(card => card.faction))].map(faction => <button className={collectionFilter === faction ? 'filter-active' : ''} key={faction} onClick={() => setCollectionFilter(faction)}>{faction}</button>)}</div><div className="collection-grid">{filteredCards.map(card => <GameCard key={card.id} card={card} onClick={() => setInspected(card)} onInspect={() => setInspected(card)} />)}</div>{!filteredCards.length && <p className="empty-search">No hay leyendas con ese nombre.</p>}</Modal>}
+    {inspected && <Modal title={inspected.name} eyebrow={`${inspected.faction} · ${inspected.rarity === 'legendary' ? 'LEGENDARIA' : inspected.rarity === 'epic' ? 'ÉPICA' : 'RARA'}`} onClose={() => setInspected(null)} className="inspect-modal"><div className="inspect-layout"><GameCard card={inspected} variant="inspect" /><div className="inspect-description"><blockquote>“{inspected.lore}”</blockquote><span className="inspect-subhead">{inspected.keyword || 'PODER ANCESTRAL'}</span><h3>{inspected.ability}</h3><p>{inspected.description}</p><div className="inspect-stats">{Object.keys(STATS).map(stat => { const Icon = STAT_ICONS[stat]; return <div key={stat} className={`stat-${stat}`}><Icon size={20} /><strong>{inspected[stat]}</strong><span>{STATS[stat].name}</span></div> })}</div>{inspected.type !== 'spell' && <p className="inspect-health"><Shield size={15} /> {inspected.hp} puntos de vida</p>}<p className="inspect-note">Al atacar, infliges la mitad del atributo elegido, reducida por la defensa rival. El contraataque se resuelve al mismo tiempo.</p></div></div></Modal>}
+    {game.phase === 'gameover' && !modal && <Modal title={game.winner === 0 ? 'Dos destinos, un mismo final' : game.winner === currentNumber ? 'Un nuevo sol se alza' : 'El inframundo prevalece'} eyebrow={game.winner === 0 ? 'EMPATE' : game.winner === currentNumber ? 'VICTORIA' : 'DERROTA'} onClose={() => setModal('new')} className="victory-modal"><div className="victory-sigil"><Crown size={56} /></div><p>{game.winner === 0 ? 'Ambos héroes han caído. El mundo espera un nuevo duelo.' : game.mode === 'local' ? `El Jugador ${game.winner} ha escrito su destino.` : game.winner === 1 ? 'Los hijos del maíz vivirán para contar tu leyenda.' : 'Incluso los dioses vuelven a intentarlo.'}</p><button className="gold-button" onClick={() => setModal('new')}>Volver a combatir <RotateCcw size={16} /></button></Modal>}
+  </div>
 }
